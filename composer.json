@@ -1,27 +1,38 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "codecubeweb3/handover",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
-    "license": "MIT",
+    "description": "Safe Handover production platform for managed custody exchanges.",
+    "keywords": [
+        "laravel",
+        "framework",
+        "safe-handover",
+        "child-custody"
+    ],
+    "license": "proprietary",
     "require": {
-        "php": "^8.2",
+        "php": "^8.4",
         "laravel/framework": "^12.0",
-        "laravel/tinker": "^2.10.1"
+        "laravel/sanctum": "^4.0",
+        "laravel/fortify": "^1.20",
+        "laravel/tinker": "^2.10.1",
+        "stripe/stripe-php": "^14.0",
+        "pusher/pusher-php-server": "^7.2",
+        "brick/money": "^0.10.3",
+        "spatie/laravel-activitylog": "^4.10",
+        "spatie/laravel-permission": "^6.0",
+        "guzzlehttp/guzzle": "^7.8|^8.0",
+        "ramsey/uuid": "^4.7",
+        "twilio/sdk": "^8.0"
     },
     "require-dev": {
-        "fakerphp/faker": "^1.23",
-        "laravel/pail": "^1.2.2",
-        "laravel/pint": "^1.24",
-        "laravel/sail": "^1.41",
-        "mockery/mockery": "^1.6",
-        "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^11.5.3"
+        "laravel/pint": "^1.25",
+        "laravel/pail": "^1.2"
     },
     "autoload": {
         "psr-4": {
             "App\\": "app/",
+            "App\\Support\\": "app/Support/",
             "Database\\Factories\\": "database/factories/",
             "Database\\Seeders\\": "database/seeders/"
         }
@@ -46,6 +57,12 @@
             "@php artisan key:generate --ansi",
             "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate --graceful --ansi"
+        ],
+        "analyse": [
+            "@php vendor/bin/phpstan analyse"
+        ],
+        "lint": [
+            "@php vendor/bin/pint"
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
