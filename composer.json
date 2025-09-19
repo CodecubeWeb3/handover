@@ -26,8 +26,9 @@
         "twilio/sdk": "^8.0"
     },
     "require-dev": {
+        "laravel/pail": "^1.2",
         "laravel/pint": "^1.25",
-        "laravel/pail": "^1.2"
+        "phpunit/phpunit": "11.2"
     },
     "autoload": {
         "psr-4": {
