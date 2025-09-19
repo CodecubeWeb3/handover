@@ -42,11 +42,12 @@ class StripePaymentGateway
             ->first();
 
         if (! $this->enabled) {
-            $id = $existing?->stripe_pi_id ?? $this->fakeId('pi');
+            $id = $existing?->stripe_pi_id ?? $this->fakeId('pi', [$booking->id, strtolower($role)]);
+            $secret = $existing?->client_secret ?? 'pi_secret_'.$id;
 
             return [
                 'payment_intent_id' => $id,
-                'client_secret' => $existing?->client_secret ?? 'pi_secret_'.$id,
+                'client_secret' => $secret,
             ];
         }
 
@@ -128,7 +129,7 @@ class StripePaymentGateway
     public function refund(string $paymentIntentId, int $amountMinor, string $reason = 'requested_by_customer'): string
     {
         if (! $this->enabled) {
-            return $this->fakeId('re');
+            return $this->fakeId('re', [$paymentIntentId, $amountMinor]);
         }
 
         try {
@@ -147,7 +148,7 @@ class StripePaymentGateway
     public function createTransfer(Booking $booking, int $amountMinor): ?string
     {
         if (! $this->enabled) {
-            return $amountMinor > 0 ? $this->fakeId('tr') : null;
+            return $amountMinor > 0 ? $this->fakeId('tr', [$booking->id, $amountMinor]) : null;
         }
 
         $destination = $booking->operative?->stripe_connect_id;
@@ -180,8 +181,17 @@ class StripePaymentGateway
         ];
     }
 
-    private function fakeId(string $prefix): string
+    private function fakeId(string $prefix, array $parts = []): string
     {
-        return $prefix.'_'.Str::random(24);
+        $normalized = collect($parts)
+            ->map(fn ($part) => Str::of((string) $part)->lower()->replaceMatches('/[^a-z0-9]+/', '_')->trim('_'))
+            ->filter()
+            ->implode('_');
+
+        if ($normalized === '') {
+            $normalized = Str::lower(Str::random(12));
+        }
+
+        return $prefix.'_sim_'.$normalized;
     }
 }

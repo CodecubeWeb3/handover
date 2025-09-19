@@ -18,8 +18,10 @@ class MessageThreadIndexController extends Controller
 
         abort_unless($user, 401);
 
+        $includeArchived = $request->boolean('include_archived', false);
+
         return response()->json([
-            'data' => $this->service->listThreadsForUser($user),
+            'data' => $this->service->listThreadsForUser($user, $includeArchived),
         ]);
     }
 }

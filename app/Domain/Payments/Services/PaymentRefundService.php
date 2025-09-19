@@ -7,6 +7,7 @@ use App\Domain\Payments\Enums\PaymentStatus;
 use App\Models\Booking;
 use App\Models\Payment;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PaymentRefundService
 {
@@ -63,6 +64,12 @@ class PaymentRefundService
                 if ($remaining === 0) {
                     break;
                 }
+            }
+
+            if ($amountMinor > 0 && $refundedNow < $amountMinor) {
+                throw ValidationException::withMessages([
+                    'amount' => 'Unable to refund the requested amount.'],
+                );
             }
 
             $refundTotal = $payment->refund_total + ($amountMinor > 0 ? $amountMinor : $refundedNow);

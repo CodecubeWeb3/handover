@@ -10,7 +10,6 @@ use App\Models\Payment;
 use App\Models\PaymentIntent;
 use App\Models\Transfer;
 use App\Support\FeatureFlags;
-
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
@@ -288,13 +287,3 @@ class SharedPaymentManager
         return (int) round($capturedTotal * $ratio);
     }
 }
-
-
-
-
-
-
-
-
-
-

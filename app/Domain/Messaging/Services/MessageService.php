@@ -5,18 +5,23 @@ namespace App\Domain\Messaging\Services;
 use App\Events\MessageRead;
 use App\Events\MessageSent;
 use App\Events\ThreadTyping;
+
+use App\Enums\UserRole;
 use App\Jobs\NotifyModeratorsOfFlag;
 use App\Models\Booking;
 use App\Models\Message;
 use App\Models\MessageAttachment;
 use App\Models\MessageFlag;
+use App\Models\MessageMute;
 use App\Models\MessageReadState;
 use App\Models\MessageThread;
 use App\Models\MessageTypingState;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class MessageService
 {
@@ -30,7 +35,7 @@ class MessageService
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function listThreadsForUser(User $user): array
+    public function listThreadsForUser(User $user, bool $includeArchived = false): array
     {
         $threads = MessageThread::query()
             ->with([
@@ -38,7 +43,9 @@ class MessageService
                 'booking.operative',
                 'messages' => fn ($query) => $query->latest('created_at')->limit(1)->with('sender'),
                 'readStates',
+                'mutes',
             ])
+            ->when(! $includeArchived, fn ($query) => $query->whereNull('archived_at'))
             ->whereHas('booking', function ($query) use ($user) {
                 $query->where('operative_id', $user->id)
                     ->orWhereHas('slot.request', fn ($q) => $q->where('parent_id', $user->id));
@@ -52,10 +59,12 @@ class MessageService
             $userReadState = $thread->readStates->firstWhere('user_id', $user->id);
             $lastReadId = $userReadState?->message_id ?? 0;
             $unread = $lastMessage && ($lastReadId < $lastMessage->id);
+            $mute = $thread->mutes->firstWhere('user_id', $user->id);
 
             return [
                 'id' => $thread->id,
                 'booking_id' => $booking?->id,
+                'archived_at' => optional($thread->archived_at)->toIso8601String(),
                 'last_message' => $lastMessage ? [
                     'id' => $lastMessage->id,
                     'body' => $lastMessage->body,
@@ -67,6 +76,7 @@ class MessageService
                     ],
                 ] : null,
                 'participants' => $this->participantsPayload($thread),
+                'muted_until' => optional($mute?->muted_until)->toIso8601String(),
                 'unread' => $unread,
             ];
         })->all();
@@ -85,12 +95,26 @@ class MessageService
 
         $readStates = $thread->readStates()->with('user')->get();
         $typingStates = $this->activeTypingStates($thread);
+        $mute = $this->muteForUser($thread, $user);
+        $mutes = $thread->mutes()->with('user')->get();
 
         return [
             'thread' => [
                 'id' => $thread->id,
                 'booking_id' => $thread->booking_id,
+                'archived_at' => optional($thread->archived_at)->toIso8601String(),
                 'participants' => $this->participantsPayload($thread),
+                'muted_until' => optional($mute?->muted_until)->toIso8601String(),
+                'participant_mutes' => $mutes->map(fn (MessageMute $record) => [
+                    'user' => [
+                        'id' => $record->user?->id,
+                        'name' => $record->user?->name,
+                        'role' => $record->user?->role->value ?? null,
+                    ],
+                    'muted_until' => optional($record->muted_until)->toIso8601String(),
+                    'created_at' => optional($record->created_at)->toIso8601String(),
+                ])->values()->all(),
+                'permissions' => $this->threadPermissions($thread, $user),
             ],
             'messages' => $messages->map(fn (Message $message) => [
                 'id' => $message->id,
@@ -130,13 +154,21 @@ class MessageService
         ];
     }
 
-    /**
-     * @param  array<int, array{storage_disk?: string, storage_path: string, mime: string, bytes: int}>  $attachments
-     */
     public function send(MessageThread $thread, User $sender, string $body, array $attachments = []): Message
     {
         if ($body === '' && empty($attachments)) {
-            throw new \InvalidArgumentException('Message body or attachment required.');
+            throw ValidationException::withMessages([
+                'message' => 'Message body or attachment required.',
+            ]);
+        }
+
+        if ($this->isMuted($thread, $sender)) {
+            $mute = $this->muteForUser($thread, $sender);
+            $until = optional($mute?->muted_until)->toDayDateTimeString() ?? 'further notice';
+
+            throw ValidationException::withMessages([
+                'message' => "You are muted in this conversation until {$until}.",
+            ]);
         }
 
         return DB::transaction(function () use ($thread, $sender, $body, $attachments) {
@@ -162,6 +194,8 @@ class MessageService
                 ['thread_id' => $thread->id, 'user_id' => $sender->id],
                 ['message_id' => $message->id, 'read_at' => now()]
             );
+
+            $thread->forceFill(['updated_at' => now()])->save();
 
             $message->load(['sender', 'attachments', 'thread.booking']);
 
@@ -210,32 +244,166 @@ class MessageService
         return $flag;
     }
 
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    public function listFlags(): array
+    public function listFlags(array $filters, int $perPage = 15, int $page = 1): array
     {
-        return MessageFlag::query()
-            ->with(['message.thread.booking', 'reporter'])
-            ->latest('created_at')
-            ->get()
-            ->map(fn (MessageFlag $flag) => [
+        $perPage = max(1, min($perPage, 100));
+        $page = max($page, 1);
+
+        $paginator = $this->flagQuery($filters)->paginate($perPage, ['*'], 'page', $page);
+
+        $data = collect($paginator->items())->map(function (MessageFlag $flag) {
+            $message = $flag->message;
+            $thread = $message?->thread;
+
+            return [
                 'message_id' => $flag->message_id,
                 'reason' => $flag->reason,
                 'flagged_at' => optional($flag->created_at)->toIso8601String(),
                 'reporter' => [
                     'id' => $flag->reporter?->id,
                     'name' => $flag->reporter?->name,
-                    'role' => $flag->reporter?->role->value ?? null,
                 ],
-                'thread_id' => $flag->message?->thread_id,
-                'preview' => $flag->message?->body,
-            ])->all();
+                'thread_id' => $thread?->id,
+                'booking_id' => $thread?->booking_id,
+                'preview' => $message?->body,
+            ];
+        })->all();
+
+        return [
+            'data' => $data,
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+            ],
+            'filters' => array_filter([
+                'reason' => $filters['reason'] ?? null,
+                'reporter' => $filters['reporter'] ?? null,
+                'booking_id' => $filters['booking_id'] ?? null,
+                'thread_id' => $filters['thread_id'] ?? null,
+                'message_id' => $filters['message_id'] ?? null,
+                'date_from' => $filters['date_from'] ?? null,
+                'date_to' => $filters['date_to'] ?? null,
+            ], fn ($value) => $value !== null && $value !== ''),
+        ];
+    }
+
+    private function flagQuery(array $filters): Builder
+    {
+        $query = MessageFlag::query()
+            ->with(['message.thread.booking', 'reporter'])
+            ->latest('created_at');
+
+        if (! empty($filters['reason'])) {
+            $query->where('reason', 'like', '%'.$filters['reason'].'%');
+        }
+
+        if (! empty($filters['reporter'])) {
+            $query->whereHas('reporter', fn ($q) => $q->where('name', 'like', '%'.$filters['reporter'].'%'));
+        }
+
+        if (! empty($filters['booking_id'])) {
+            $query->whereHas('message.thread', fn ($q) => $q->where('booking_id', $filters['booking_id']));
+        }
+
+        if (! empty($filters['thread_id'])) {
+            $query->whereHas('message', fn ($q) => $q->where('thread_id', $filters['thread_id']));
+        }
+
+        if (! empty($filters['message_id'])) {
+            $query->where('message_id', $filters['message_id']);
+        }
+
+        if (! empty($filters['date_from'])) {
+            $query->whereDate('created_at', '>=', $filters['date_from']);
+        }
+
+        if (! empty($filters['date_to'])) {
+            $query->whereDate('created_at', '<=', $filters['date_to']);
+        }
+
+        return $query;
     }
 
     public function resolveFlags(Message $message): void
     {
         MessageFlag::query()->where('message_id', $message->id)->delete();
+    }
+
+    public function archiveThread(MessageThread $thread): void
+    {
+        $thread->forceFill(['archived_at' => now()])->save();
+    }
+
+    public function unarchiveThread(MessageThread $thread): void
+    {
+        $thread->forceFill(['archived_at' => null])->save();
+    }
+
+    public function muteParticipant(MessageThread $thread, User $user, int $minutes): MessageMute
+    {
+        $mutedUntil = now()->addMinutes(max($minutes, 1));
+
+        return MessageMute::query()->updateOrCreate(
+            ['thread_id' => $thread->id, 'user_id' => $user->id],
+            ['muted_until' => $mutedUntil, 'created_at' => now()]
+        );
+    }
+
+    public function unmuteParticipant(MessageThread $thread, User $user): void
+    {
+        MessageMute::query()->where('thread_id', $thread->id)->where('user_id', $user->id)->delete();
+    }
+
+    private function threadPermissions(MessageThread $thread, User $user): array
+    {
+        $canModerate = $this->canModerate($user);
+
+        return [
+            'can_archive' => $canModerate,
+            'can_unarchive' => $canModerate && $thread->archived_at !== null,
+            'can_mute' => $canModerate,
+            'can_unmute' => $canModerate,
+        ];
+    }
+
+    private function canModerate(?User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        return in_array($user->role, [UserRole::Admin, UserRole::Moderator], true);
+    }
+
+    private function isMuted(MessageThread $thread, User $user): bool
+    {
+        $mute = $this->muteForUser($thread, $user);
+
+        if (! $mute) {
+            return false;
+        }
+
+        if ($mute->muted_until && $mute->muted_until->isPast()) {
+            $this->unmuteParticipant($thread, $user);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private function muteForUser(MessageThread $thread, User $user): ?MessageMute
+    {
+        if ($thread->relationLoaded('mutes')) {
+            return $thread->mutes->firstWhere('user_id', $user->id);
+        }
+
+        return $thread->mutes()
+            ->where('user_id', $user->id)
+            ->latest('muted_until')
+            ->first();
     }
 
     /**

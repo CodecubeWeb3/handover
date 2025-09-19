@@ -1,8 +1,8 @@
-@extends('layouts.auth')
+@extends("layouts.auth")
 
-@section('title', 'Messages')
+@section("title", "Messages")
 
-@push('styles')
+@push("styles")
     <style>
         .message-layout {
             display: grid;
@@ -75,6 +75,11 @@
             color: rgba(96, 165, 250, 0.85);
         }
 
+        .message-highlight {
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.6);
+            border-radius: 1rem;
+        }
+
         @media (max-width: 992px) {
             .message-layout {
                 grid-template-columns: 1fr;
@@ -88,7 +93,7 @@
     </style>
 @endpush
 
-@section('content')
+@section("content")
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="h4 mb-1">Messages</h1>
@@ -99,18 +104,30 @@
 
     <div class="message-layout" data-messages-app>
         <aside class="message-sidebar">
+            <div class="px-3 py-2 border-bottom border-light-subtle">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="include-archived" data-include-archived>
+                    <label class="form-check-label small text-muted-soft" for="include-archived">Show archived</label>
+                </div>
+            </div>
             <div class="px-3 py-3 border-bottom border-light-subtle">
                 <input type="search" class="form-control form-control-sm" placeholder="Search conversations" data-thread-search>
             </div>
             <div class="message-thread-list list-group list-group-flush" data-thread-list>
-                <div class="text-center text-muted-soft py-4">Loading conversations…</div>
+                <div class="text-center text-muted-soft py-4">Loading conversations.</div>
             </div>
         </aside>
 
         <section class="message-panel">
             <header class="border-bottom border-light-subtle px-4 py-3" data-thread-header>
-                <h2 class="h5 mb-1">Select a conversation</h2>
-                <small class="text-muted-soft">Messages will appear here.</small>
+                <div class="d-flex justify-content-between align-items-start gap-3">
+                    <div>
+                        <h2 class="h5 mb-1" data-thread-title>Select a conversation</h2>
+                        <small class="text-muted-soft" data-thread-subtitle>Messages will appear here.</small>
+                        <div class="small text-warning mt-1" data-thread-status></div>
+                    </div>
+                    <div class="d-flex flex-column align-items-end gap-2" data-thread-actions></div>
+                </div>
             </header>
             <div class="message-scroll" data-message-scroll>
                 <p class="text-muted-soft text-center">No messages yet.</p>
@@ -120,6 +137,7 @@
                     <textarea class="form-control" rows="2" placeholder="Type your message" data-message-input disabled></textarea>
                     <button type="submit" class="btn btn-primary" data-message-submit disabled>Send</button>
                 </form>
+                <div class="text-warning small mt-2" data-muted-notice></div>
                 <div class="d-flex justify-content-between align-items-center mt-2">
                     <div class="typing-indicator" data-typing-indicator></div>
                     <small class="text-muted-soft" data-read-indicator></small>
@@ -129,6 +147,6 @@
     </div>
 @endsection
 
-@push('scripts')
-    @vite('resources/js/messages-page.js')
+@push("scripts")
+    @vite("resources/js/messages-page.js")
 @endpush

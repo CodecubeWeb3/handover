@@ -9,6 +9,8 @@ use App\Http\Controllers\MessageFlagResolveController;
 use App\Http\Controllers\MessageFlagsIndexController;
 use App\Http\Controllers\MessageSendController;
 use App\Http\Controllers\MessageThreadController;
+use App\Http\Controllers\MessageThreadArchiveController;
+use App\Http\Controllers\MessageThreadMuteController;
 use App\Http\Controllers\MessageThreadIndexController;
 use App\Http\Controllers\StripeWebhookController;
 use App\Http\Controllers\ThreadReadController;
@@ -36,6 +38,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/messages/{thread}/send', MessageSendController::class)->name('messages.send');
     Route::post('/messages/{thread}/typing', ThreadTypingController::class)->name('messages.typing');
     Route::post('/messages/{thread}/read', ThreadReadController::class)->name('messages.read');
+    Route::post('/messages/{thread}/archive', [MessageThreadArchiveController::class, 'store'])->name('messages.archive');
+    Route::delete('/messages/{thread}/archive', [MessageThreadArchiveController::class, 'destroy'])->name('messages.archive.destroy');
+    Route::post('/messages/{thread}/mute', [MessageThreadMuteController::class, 'store'])->name('messages.mute');
+    Route::delete('/messages/{thread}/mute/{user}', [MessageThreadMuteController::class, 'destroy'])->name('messages.mute.destroy');
 
     Route::post('/broadcasting/auth', BroadcastAuthController::class)->name('broadcast.auth');
 });

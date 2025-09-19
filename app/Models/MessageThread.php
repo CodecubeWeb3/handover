@@ -13,11 +13,13 @@ class MessageThread extends Model
 
     protected $fillable = [
         'booking_id',
+        'archived_at',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        'archived_at' => 'datetime',
     ];
 
     public function booking(): BelongsTo
@@ -38,5 +40,10 @@ class MessageThread extends Model
     public function typingStates(): HasMany
     {
         return $this->hasMany(MessageTypingState::class, 'thread_id');
+    }
+
+    public function mutes(): HasMany
+    {
+        return $this->hasMany(MessageMute::class, 'thread_id');
     }
 }

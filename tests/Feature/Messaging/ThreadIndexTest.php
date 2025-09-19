@@ -28,8 +28,11 @@ class ThreadIndexTest extends TestCase
             'data' => [[
                 'id',
                 'booking_id',
+                'archived_at',
                 'participants',
                 'last_message',
+                'muted_until',
+                'unread',
             ]],
         ]);
     }
